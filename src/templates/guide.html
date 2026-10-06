@@ -1,0 +1,3 @@
+{% extends "base.html" %}{% block body %}<h2>Which doctor should I see?</h2><p class="flash">Guidance only, not a diagnosis. If life-threatening, call emergency services.</p>
+<form method="get"><select name="area"><option value="">Choose a problem area</option>{% for a in areas %}<option {{ 'selected' if a==area }}>{{ a }}</option>{% endfor %}</select><button>Suggest</button></form>
+{% if specs %}<p>Suggested specialty: <b>{{ specs|join(', ') }}</b></p>{% for d in docs %}<div class="card row"><span><b>{{ d.name }}</b> ({{ d.spec }}, {{ d.clinic.name }})<br>Fee {{ d.fee }}</span><a href="{{ url_for('book',doctor=d.id) }}">Book</a></div>{% else %}<p class="m">No matching doctors.</p>{% endfor %}{% endif %}{% endblock %}

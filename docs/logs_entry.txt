@@ -1,0 +1,5 @@
+[2026-10-06 IST] Tool: Claude
+Prompt: Build prototype; then add multiple clinics, fees and comparison, emergency triage priority, doctor's symptom-aware daily queue, symptom-to-specialist guide, plus extra ideas
+Response summary: Added Clinic model, fees, /compare, /guide, triage priority with red-flag escalation and emergency slots, /doctor/today, break-glass access, admin security dashboard, 11 tests
+Files: src/app.py, src/templates/*, src/tests/test_security.py, docs/APPROACH.md, docs/SECURITY.md, deployment/README.md
+Commit SHA: (fill in after git commit)

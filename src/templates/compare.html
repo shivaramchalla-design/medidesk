@@ -1,0 +1,4 @@
+{% extends "base.html" %}{% block body %}<h2>Compare doctors and clinics</h2>
+<form method="get"><select name="spec"><option value="">All specialties</option>{% for s in specs %}<option {{ 'selected' if s==spec }}>{{ s }}</option>{% endfor %}</select><button>Filter</button></form>
+{% for r in rows %}<div class="card row"><div><b>{{ r.d.name }}</b> {% for t in r.tags %}<span class="tag confirmed">{{ t }}</span> {% endfor %}<br><span class="m">{{ r.d.spec }} at {{ r.d.clinic.name }}</span><br>Fee: {{ r.d.fee }}. Next free: {{ 'none in 14 days' if r.next.startswith('9999') else r.next }}</div><a href="{{ url_for('book',doctor=r.d.id) }}">Book</a></div>{% else %}<p class="m">No doctors found.</p>{% endfor %}
+<div class="card"><h3>Clinic average fee</h3><table><tr><th>Clinic</th><th>Average fee</th><th>Doctors</th></tr>{% for c in clin %}<tr><td>{{ c[0] }}</td><td>{{ c[1] }}</td><td>{{ c[2] }}</td></tr>{% endfor %}</table></div>{% endblock %}

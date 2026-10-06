@@ -1,5 +1,7 @@
-{% extends "base.html" %}{% block body %}<div class="card"><h2>Book an appointment</h2><form method="post">{{ csrf_field() }}
-<label>Doctor<select name="doctor">{% for d in docs %}<option value="{{ d.id }}">{{ d.name }} ({{ d.spec }})</option>{% endfor %}</select></label>
+{% extends "base.html" %}{% block body %}<div class="card"><h2>Book an appointment</h2><p class="flash">If this is life-threatening, call your local emergency number now.</p><form method="post">{{ csrf_field() }}
+<label>Doctor<select name="doctor">{% for d in docs %}<option value="{{ d.id }}" {{ 'selected' if d.id==pre }}>{{ d.name }} ({{ d.spec }}, {{ d.clinic.name }}, fee {{ d.fee }})</option>{% endfor %}</select></label>
+<label>Priority<select name="priority"><option value="routine">Routine</option><option value="urgent">Urgent</option><option value="emergency">Emergency</option></select></label>
 <label>Date<input type="date" name="date" min="{{ today }}" required></label>
-<label>Time<select name="time">{% for s in slots %}<option>{{ s }}</option>{% endfor %}</select></label>
-<label>Reason<input name="reason" required minlength="3" maxlength="120"></label><button>Request appointment</button></form></div>{% endblock %}
+<label>Time<select name="time">{% for s in slots %}<option>{{ s }}</option>{% endfor %}{% for s in emg %}<option value="{{ s }}">{{ s }} (emergency only)</option>{% endfor %}</select></label>
+<label>Reason<input name="reason" required minlength="3" maxlength="120"></label>
+<label>Symptoms<input name="symptoms" maxlength="200" placeholder="e.g. back pain, fever"></label><button>Request appointment</button></form></div>{% endblock %}

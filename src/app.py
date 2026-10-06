@@ -39,6 +39,15 @@ ph = PasswordHasher(); DUMMY = ph.hash("timing-equalizer")
 fer = Fernet(os.environ["FERNET_KEY"].encode())           # record text encrypted at rest
 app.jinja_env.globals["csrf_field"] = lambda: Markup(f'<input type="hidden" name="csrf_token" value="{generate_csrf()}">')
 SLOTS = ["09:00", "10:00", "11:00", "14:00", "15:00", "16:00"]
+EMG_SLOTS = ["17:00", "17:30"]                     # reserved: only emergency-priority bookings may use these
+PRI = ["emergency", "urgent", "routine"]           # queue order
+RED_FLAGS = ("chest pain", "breathing", "unconscious", "severe bleeding", "stroke", "seizure", "heart attack")
+GUIDE = {"Bone, joint or muscle pain": ["Orthopedics"], "Skin rash or itching": ["Dermatology"],
+         "Chest pain or palpitations": ["Cardiology"], "Fever, cold or weakness": ["General Medicine"]}  # guidance only, not diagnosis
+
+class Clinic(db.Model):
+    __tablename__ = "clinics"
+    id = db.Column(db.Integer, primary_key=True); name = db.Column(db.String(80)); city = db.Column(db.String(60))
 
 class User(UserMixin, db.Model):
     __tablename__ = "users"
@@ -49,6 +58,8 @@ class User(UserMixin, db.Model):
     age = db.Column(db.Integer); phone = db.Column(db.String(20))
     active = db.Column(db.Boolean, default=True)
     failed = db.Column(db.Integer, default=0); locked_until = db.Column(db.DateTime)
+    clinic_id = db.Column(db.Integer, db.ForeignKey("clinics.id")); fee = db.Column(db.Integer)  # doctors only
+    clinic = db.relationship("Clinic")
 
 class Appt(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -56,6 +67,7 @@ class Appt(db.Model):
     doctor_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     date = db.Column(db.String(10)); time = db.Column(db.String(5)); reason = db.Column(db.String(120))
     status = db.Column(db.String(12), default="pending"); note = db.Column(db.String(300), default="")
+    priority = db.Column(db.String(10), default="routine"); symptoms = db.Column(db.String(200), default="")
     patient = db.relationship("User", foreign_keys=[patient_id]); doctor = db.relationship("User", foreign_keys=[doctor_id])
 
 class Record(db.Model):
@@ -73,7 +85,7 @@ class Consent(db.Model):  # patient grants a doctor time-limited access to recor
 
 class Audit(db.Model):  # hash-chained: editing any row breaks every later hash
     id = db.Column(db.Integer, primary_key=True)
-    ts = db.Column(db.String(25)); actor = db.Column(db.Integer); action = db.Column(db.String(40))
+    ts = db.Column(db.String(25)); actor = db.Column(db.Integer); action = db.Column(db.String(140))
     target = db.Column(db.String(60)); prev = db.Column(db.String(64)); hash = db.Column(db.String(64))
 
 def _h(prev, ts, actor, action, target): return hashlib.sha256(f"{prev}|{ts}|{actor}|{action}|{target}".encode()).hexdigest()
@@ -104,6 +116,15 @@ def role(*roles):  # single place where role-based access is enforced
 
 def consent_for(did, pid):
     return Consent.query.filter(Consent.doctor_id == did, Consent.patient_id == pid, Consent.expires > datetime.utcnow()).first()
+
+def next_free(did):
+    now = datetime.now().strftime("%H:%M")
+    for i in range(14):
+        day = (date.today() + timedelta(days=i)).isoformat()
+        for s in SLOTS:
+            if i == 0 and s <= now: continue
+            if not Appt.query.filter(Appt.doctor_id == did, Appt.date == day, Appt.time == s, Appt.status != "cancelled").first(): return f"{day} {s}"
+    return "9999-12-31 00:00"
 
 @app.after_request
 def nocache(r): r.headers["Cache-Control"] = "no-store"; return r
@@ -172,13 +193,17 @@ def book():
         try:
             d = User.query.filter_by(id=int(request.form["doctor"]), role="doctor", active=True).first_or_404()
             day = date.fromisoformat(request.form["date"]); t = request.form["time"]; r = request.form.get("reason", "").strip()
+            sy = request.form.get("symptoms", "").strip(); pri = request.form.get("priority", "routine")
         except (KeyError, ValueError): abort(400)
-        if day < date.today() or t not in SLOTS or not 3 <= len(r) <= 120: flash("Check the date, time and reason.")
+        if pri not in PRI: abort(400)
+        if any(k in sy.lower() for k in RED_FLAGS): pri = "emergency"      # red-flag symptoms raise priority on the server
+        slot_ok = t in SLOTS or (t in EMG_SLOTS and pri == "emergency")     # emergency slots are not available to routine bookings
+        if day < date.today() or not slot_ok or not 3 <= len(r) <= 120 or len(sy) > 200: flash("Check the date, time, reason and symptoms.")
         elif Appt.query.filter(Appt.doctor_id == d.id, Appt.date == day.isoformat(), Appt.time == t, Appt.status != "cancelled").first(): flash("That slot is taken.")
         else:
-            a = Appt(patient_id=current_user.id, doctor_id=d.id, date=day.isoformat(), time=t, reason=r); db.session.add(a); db.session.flush()
-            audit("book", f"appt:{a.id}"); db.session.commit(); flash("Appointment requested."); return redirect(url_for("patient_home"))
-    return render_template("book.html", docs=docs, slots=SLOTS, today=date.today().isoformat())
+            a = Appt(patient_id=current_user.id, doctor_id=d.id, date=day.isoformat(), time=t, reason=r, symptoms=sy, priority=pri); db.session.add(a); db.session.flush()
+            audit("book_" + pri, f"appt:{a.id}"); db.session.commit(); flash("Emergency request booked with top priority." if pri == "emergency" else "Appointment requested."); return redirect(url_for("patient_home"))
+    return render_template("book.html", docs=docs, slots=SLOTS, emg=EMG_SLOTS, today=date.today().isoformat(), pre=request.args.get("doctor", type=int))
 
 @app.route("/cancel/<int:aid>", methods=["POST"])
 @role("patient", "admin")
@@ -225,12 +250,42 @@ def profile():
         else: current_user.name, current_user.age, current_user.phone = n, age, ph_; audit("profile_update"); db.session.commit(); flash("Profile saved.")
     return render_template("profile.html")
 
+@app.route("/compare")
+@role("patient")
+def compare():
+    spec = request.args.get("spec", ""); q = User.query.filter_by(role="doctor", active=True)
+    if spec: q = q.filter_by(spec=spec)
+    rows = [{"d": d, "next": next_free(d.id)} for d in q.all()]
+    if rows:
+        cheap = min(r["d"].fee or 10**9 for r in rows); soon = min(r["next"] for r in rows)
+        for r in rows: r["tags"] = [t for t, c in (("cheapest", (r["d"].fee or 10**9) == cheap), ("soonest", r["next"] == soon)) if c]
+    per = {}
+    for r in rows: per.setdefault(r["d"].clinic.name, []).append(r["d"].fee or 0)
+    clin = [(n, round(sum(f) / len(f)), len(f)) for n, f in per.items()]
+    specs = sorted({u.spec for u in User.query.filter_by(role="doctor", active=True) if u.spec})
+    return render_template("compare.html", rows=sorted(rows, key=lambda r: r["d"].fee or 0), specs=specs, spec=spec, clin=clin)
+
+@app.route("/guide")
+@role("patient")
+def guide():
+    area = request.args.get("area", ""); specs = GUIDE.get(area, [])
+    docs = User.query.filter(User.role == "doctor", User.active == True, User.spec.in_(specs)).order_by(User.fee).all() if specs else []
+    return render_template("guide.html", areas=list(GUIDE), area=area, specs=specs, docs=docs)
+
 # ---------- doctor ----------
 @app.route("/doctor")
 @role("doctor")
 def doctor_home():
-    l = Appt.query.filter_by(doctor_id=current_user.id).order_by(Appt.date, Appt.time).all()
+    l = Appt.query.filter_by(doctor_id=current_user.id).all()
+    l.sort(key=lambda a: (a.date, PRI.index(a.priority), a.time))
     return render_template("appts.html", appts=l, title="My schedule")
+
+@app.route("/doctor/today")
+@role("doctor")
+def doctor_today():  # only this doctor's own appointments; symptoms visible to the treating doctor only
+    l = Appt.query.filter(Appt.doctor_id == current_user.id, Appt.date == date.today().isoformat(), Appt.status.in_(("pending", "confirmed"))).all()
+    l.sort(key=lambda a: (PRI.index(a.priority), a.time))
+    return render_template("appts.html", appts=l, title="Today's queue (emergency first)")
 
 @app.route("/appt/<int:aid>/status", methods=["POST"])
 @role("doctor")
@@ -264,16 +319,29 @@ def patient_detail(pid):
     audit("view_record", f"patient:{pid}"); db.session.commit()
     return render_template("patient_detail.html", p=p, recs=Record.query.filter_by(patient_id=pid).order_by(Record.date.desc()).all())
 
+@app.route("/doctor/breakglass/<int:pid>", methods=["POST"])
+@role("doctor")
+def breakglass(pid):  # emergency override: only for a doctor with an appointment, reason required, 1 hour, logged loudly
+    User.query.filter_by(id=pid, role="patient").first_or_404()
+    if not Appt.query.filter_by(doctor_id=current_user.id, patient_id=pid).first(): abort(403)
+    why = request.form.get("reason", "").strip()
+    if not 10 <= len(why) <= 100: flash("Give a reason of 10 to 100 characters."); return redirect(url_for("doctor_patients"))
+    db.session.add(Consent(patient_id=pid, doctor_id=current_user.id, expires=datetime.utcnow() + timedelta(hours=1)))
+    audit("break_glass: " + why, f"patient:{pid}"); db.session.commit()   # patient sees this in their access log
+    flash("Emergency access granted for 1 hour. The patient has been notified in their access log."); return redirect(url_for("doctor_patients"))
+
 # ---------- admin (no access to record contents) ----------
 @app.route("/admin", methods=["GET", "POST"])
 @role("admin")
 def admin_home():
     if request.method == "POST":
         n, s, e, p = (request.form.get(k, "").strip() for k in ("name", "spec", "email", "password"))
-        if not (n and s and "@" in e and len(p) >= 8): flash("Fill every field; password needs 8+ characters.")
+        try: fee = int(request.form.get("fee", "")); cid = int(request.form.get("clinic", ""))
+        except ValueError: fee = cid = 0
+        if not (n and s and "@" in e and len(p) >= 8 and 0 < fee <= 100000 and db.session.get(Clinic, cid)): flash("Fill every field; password needs 8+ characters.")
         elif User.query.filter_by(email=e.lower()).first(): flash("Email already in use.")
-        else: db.session.add(User(role="doctor", name=n, spec=s, email=e.lower(), pw=ph.hash(p))); audit("doctor_add", e.lower()); db.session.commit(); flash("Doctor added.")
-    return render_template("admin.html", users=User.query.filter(User.role != "admin").order_by(User.role, User.name).all())
+        else: db.session.add(User(role="doctor", name=n, spec=s, email=e.lower(), pw=ph.hash(p), clinic_id=cid, fee=fee)); audit("doctor_add", e.lower()); db.session.commit(); flash("Doctor added.")
+    return render_template("admin.html", users=User.query.filter(User.role != "admin").order_by(User.role, User.name).all(), clinics=Clinic.query.all())
 
 @app.route("/admin/user/<int:uid>/toggle", methods=["POST"])
 @role("admin")
@@ -289,23 +357,36 @@ def admin_appts():
 @app.route("/admin/audit")
 @role("admin")
 def admin_audit():
-    return render_template("audit.html", log=Audit.query.order_by(Audit.id.desc()).limit(100).all(), ok=chain_ok(),
-                           names={u.id: u.name for u in User.query.all()})
+    cnt = lambda p: Audit.query.filter(Audit.action.like(p)).count()
+    stats = {"Failed logins": cnt("login_failed"), "Blocked by lockout": cnt("login_blocked_locked"), "Access denied": cnt("access_denied"), "Break-glass uses": cnt("break_glass%")}
+    seen = {}
+    for a in Audit.query.filter_by(action="view_record"): seen.setdefault(a.actor, set()).add(a.target)
+    names = {u.id: u.name for u in User.query.all()}
+    sus = [names.get(k, "?") for k, v in seen.items() if len(v) >= 3]   # one doctor opening 3+ different patients
+    return render_template("audit.html", log=Audit.query.order_by(Audit.id.desc()).limit(100).all(), ok=chain_ok(), names=names, stats=stats, sus=sus)
 
 def init():
     db.create_all()
     if User.query.first(): return
+    c1 = Clinic(name="City Care Clinic", city="Hyderabad"); c2 = Clinic(name="Green Valley Clinic", city="Hyderabad"); db.session.add_all([c1, c2]); db.session.flush()
     def mk(r, n, e, p, **k): u = User(role=r, name=n, email=e, pw=ph.hash(p), **k); db.session.add(u); return u
     mk("admin", "Admin Demo", "admin@medidesk.test", "Admin#Demo2026")
-    d1 = mk("doctor", "Dr. Anika Rao", "rao@medidesk.test", "Doctor#Demo2026", spec="General Medicine")
-    d2 = mk("doctor", "Dr. Marcus Lee", "lee@medidesk.test", "Doctor#Demo2026", spec="Cardiology")
+    D = "Doctor#Demo2026"
+    d1 = mk("doctor", "Dr. Anika Rao", "rao@medidesk.test", D, spec="General Medicine", clinic_id=c1.id, fee=500)
+    d2 = mk("doctor", "Dr. Marcus Lee", "lee@medidesk.test", D, spec="Cardiology", clinic_id=c1.id, fee=900)
+    mk("doctor", "Dr. Priya Nair", "nair@medidesk.test", D, spec="Orthopedics", clinic_id=c1.id, fee=700)
+    mk("doctor", "Dr. Sofia Alvarez", "alvarez@medidesk.test", D, spec="Dermatology", clinic_id=c2.id, fee=600)
+    mk("doctor", "Dr. Imran Khan", "khan@medidesk.test", D, spec="Orthopedics", clinic_id=c2.id, fee=550)
+    mk("doctor", "Dr. Kavya Iyer", "iyer@medidesk.test", D, spec="General Medicine", clinic_id=c2.id, fee=400)
     p1 = mk("patient", "Jordan Sample", "jordan@test.dev", "Patient#Demo2026", age=34, phone="555-0101")
     p2 = mk("patient", "Riya Testwell", "riya@test.dev", "Patient#Demo2026", age=27, phone="555-0102"); db.session.flush()
     iso = lambda n: (date.today() + timedelta(days=n)).isoformat()
     db.session.add_all([
         Appt(patient_id=p1.id, doctor_id=d1.id, date=iso(-30), time="10:00", reason="Annual check-up", status="completed", note="Vitals normal."),
-        Appt(patient_id=p1.id, doctor_id=d2.id, date=iso(2), time="10:00", reason="Follow-up", status="confirmed"),
-        Appt(patient_id=p2.id, doctor_id=d1.id, date=iso(1), time="09:00", reason="Flu symptoms"),
+        Appt(patient_id=p1.id, doctor_id=d2.id, date=iso(2), time="10:00", reason="Follow-up", status="confirmed", symptoms="palpitations at night"),
+        Appt(patient_id=p2.id, doctor_id=d1.id, date=iso(1), time="09:00", reason="Flu symptoms", symptoms="fever, cough"),
+        Appt(patient_id=p2.id, doctor_id=d1.id, date=iso(0), time="17:00", reason="Chest tightness", symptoms="chest pain since morning", priority="emergency"),
+        Appt(patient_id=p1.id, doctor_id=d1.id, date=iso(0), time="23:00", reason="Back pain", symptoms="back pain, hard to walk", priority="urgent"),
         Record(patient_id=p1.id, doctor_id=d1.id, date=iso(-30), title="Annual check-up", enc=fer.encrypt(b"BP 118/76. Advised regular exercise (dummy).").decode()),
         Consent(patient_id=p1.id, doctor_id=d1.id, expires=datetime.utcnow() + timedelta(days=7))])
     db.session.commit()
