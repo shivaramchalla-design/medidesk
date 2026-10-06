@@ -4,8 +4,8 @@
 version: "1.0"
 
 submission:
-  team_id: ""
-  repository: ""
+  team_id: "04"
+  repository: "https://github.com/shivaramchalla-design/medidesk.git"
   commit_sha: ""
-  deployment_url: ""
-  submitted_at: ""
+  deployment_url: "https://medidesk-2.onrender.com"
+  submitted_at: "11:25"

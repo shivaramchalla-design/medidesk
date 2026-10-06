@@ -3,17 +3,17 @@
 # - If your team has 2 members: provide Member 1 and Member 2, and omit/delete Member 3 and 4.
 # - If your team has 4 members: provide all 4 members.
 
-team:
-  team_id: ""
-  name: ""
-  repository: "" # URL of the newly created GitHub repository for this project
+team: 4
+team_id: "4"
+name: "Fantastic Four"
+repository: "https://github.com/shivaramchalla-design/medidesk.git" # URL of the newly created GitHub repository for this project
 
 members:
-  - name: ""
-    email: ""
-  - name: ""
-    email: ""
-  - name: ""
-    email: ""
-  - name: ""
-    email: ""
+  - name: "D.Santosh Kumar"
+    email: "nagiftw78@gmail.com"
+  - name: "D.Hari"
+    email: "25p61a0587@vbithyd.ac.in"
+  - name: "C.Pavan charan"
+    email: "pavancharan45@gmail.com"
+  - name: "Ch.Shivaram"
+    email: "shivaramchalla0@gmail.com"
