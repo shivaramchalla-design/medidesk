@@ -1,0 +1,3 @@
+{% extends "base.html" %}{% block body %}<h2>My patients</h2><p class="m">Records open only when the patient has granted access.</p>
+{% for p,c in rows %}<div class="card row"><span><b>{{ p.name }}</b><br><span class="m">{% if c %}Access until {{ c.expires.strftime('%Y-%m-%d') }}{% else %}No consent. Ask the patient to grant access.{% endif %}</span></span>
+{% if c %}<a href="{{ url_for('patient_detail',pid=p.id) }}">Open records</a>{% endif %}</div>{% else %}<p class="m">No patients yet.</p>{% endfor %}{% endblock %}

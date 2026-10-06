@@ -1,0 +1,5 @@
+{% extends "base.html" %}{% block body %}<div class="card"><h2>Book an appointment</h2><form method="post">{{ csrf_field() }}
+<label>Doctor<select name="doctor">{% for d in docs %}<option value="{{ d.id }}">{{ d.name }} ({{ d.spec }})</option>{% endfor %}</select></label>
+<label>Date<input type="date" name="date" min="{{ today }}" required></label>
+<label>Time<select name="time">{% for s in slots %}<option>{{ s }}</option>{% endfor %}</select></label>
+<label>Reason<input name="reason" required minlength="3" maxlength="120"></label><button>Request appointment</button></form></div>{% endblock %}

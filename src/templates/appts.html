@@ -1,0 +1,7 @@
+{% extends "base.html" %}{% block body %}<h2>{{ title }}</h2>
+{% for a in appts %}<div class="card"><div class="row"><b>{{ a.date }} {{ a.time }}</b><span class="tag {{ a.status }}">{{ a.status }}</span></div>
+<div class="m">{% if current_user.role!='patient' %}Patient: {{ a.patient.name }}. {% endif %}{% if current_user.role!='doctor' %}Doctor: {{ a.doctor.name }}{% endif %}</div><div>{{ a.reason }}</div>{% if a.note %}<div class="m">Note: {{ a.note }}</div>{% endif %}
+{% if a.status in ('pending','confirmed') %}{% if current_user.role=='doctor' %}<form method="post" action="{{ url_for('set_status',aid=a.id) }}">{{ csrf_field() }}{% if a.status=='confirmed' %}<input name="note" placeholder="Visit note" maxlength="300">{% endif %}
+{% if a.status=='pending' %}<button name="to" value="confirmed">Confirm</button>{% else %}<button name="to" value="completed">Complete</button>{% endif %}<button name="to" value="cancelled" class="d">Cancel</button></form>
+{% else %}<form method="post" action="{{ url_for('cancel',aid=a.id) }}">{{ csrf_field() }}<button class="d">Cancel</button></form>{% endif %}{% endif %}</div>
+{% else %}<p class="m">No appointments yet.</p>{% endfor %}{% endblock %}

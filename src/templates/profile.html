@@ -1,0 +1,3 @@
+{% extends "base.html" %}{% block body %}<div class="card"><h2>Profile</h2><form method="post">{{ csrf_field() }}
+<label>Name<input name="name" value="{{ current_user.name }}" required maxlength="80"></label><label>Age<input name="age" type="number" min="0" max="120" value="{{ current_user.age or '' }}"></label>
+<label>Phone (dummy)<input name="phone" value="{{ current_user.phone or '' }}" maxlength="20"></label><p class="m">Email: {{ current_user.email }}</p><button>Save profile</button></form></div>{% endblock %}

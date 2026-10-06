@@ -1,0 +1,5 @@
+{% extends "base.html" %}{% block body %}<div class="card"><h2>Who can see my records</h2><p class="m">Doctors can open your records only while you have granted access.</p>
+{% for c in cons %}<form method="post" action="{{ url_for('revoke',cid=c.id) }}" class="row">{{ csrf_field() }}<span>{{ c.doctor.name }} until {{ c.expires.strftime('%Y-%m-%d') }}</span><button class="d">Revoke</button></form>{% else %}<p class="m">No active access.</p>{% endfor %}
+<form method="post">{{ csrf_field() }}<label>Doctor<select name="doctor">{% for d in docs %}<option value="{{ d.id }}">{{ d.name }}</option>{% endfor %}</select></label>
+<label>Days<select name="days"><option>1</option><option>7</option><option>30</option></select></label><button>Grant access</button></form></div>
+<div class="card"><h2>Access log</h2><table><tr><th>When (UTC)</th><th>Who</th><th>Action</th></tr>{% for a in log %}<tr><td>{{ a.ts }}</td><td>{{ names.get(a.actor,'?') }}</td><td>{{ a.action }}</td></tr>{% else %}<tr><td colspan="3" class="m">No activity yet.</td></tr>{% endfor %}</table></div>{% endblock %}

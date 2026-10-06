@@ -1,0 +1,1 @@
+{% extends "base.html" %}{% block body %}<h2>My medical records</h2>{% for r in recs %}<div class="card"><b>{{ r.title }}</b><div class="m">{{ r.date }} by {{ r.doctor.name }}</div><p>{{ r.body }}</p></div>{% else %}<p class="m">No records yet.</p>{% endfor %}{% endblock %}

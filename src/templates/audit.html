@@ -1,0 +1,2 @@
+{% extends "base.html" %}{% block body %}<h2>Audit log</h2><p class="flash">Chain integrity: <b>{{ 'verified' if ok else 'TAMPERING DETECTED' }}</b></p>
+<div class="card"><table><tr><th>When (UTC)</th><th>Who</th><th>Action</th><th>Target</th></tr>{% for a in log %}<tr><td>{{ a.ts }}</td><td>{{ names.get(a.actor,'-') }}</td><td>{{ a.action }}</td><td>{{ a.target }}</td></tr>{% endfor %}</table></div>{% endblock %}
